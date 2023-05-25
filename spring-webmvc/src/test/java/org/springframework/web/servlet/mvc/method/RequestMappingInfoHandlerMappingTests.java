@@ -177,7 +177,7 @@ class RequestMappingInfoHandlerMappingTests {
 	}
 
 	@PathPatternsParameterizedTest // gh-28062
-	void getHandlerMethodTypeNotSupportedWithParseError(TestRequestMappingInfoHandlerMapping mapping) {
+	void getHandlerMediaTypeNotSupportedWithParseError(TestRequestMappingInfoHandlerMapping mapping) {
 		MockHttpServletRequest request = new MockHttpServletRequest("PUT", "/person/1");
 		request.setContentType("This string");
 		assertThatExceptionOfType(HttpMediaTypeNotSupportedException.class)
@@ -363,7 +363,7 @@ class RequestMappingInfoHandlerMappingTests {
 
 		assertThat(matrixVariables).isNull();
 		assertThat(uriVariables.get("cars")).isEqualTo("cars");
-		assertThat(uriVariables.get("params")).isEqualTo("");
+		assertThat(uriVariables.get("params")).isEmpty();
 
 		// SPR-11897
 		request = new MockHttpServletRequest("GET", "/a=42;b=c");

@@ -105,6 +105,23 @@ class BeanDefinitionMethodGeneratorTests {
 		});
 	}
 
+	@Test // gh-29556
+	void generateBeanDefinitionMethodGeneratesMethodWithInstanceSupplier() {
+		RegisteredBean registeredBean = registerBean(new RootBeanDefinition(TestBean.class, TestBean::new));
+		BeanDefinitionMethodGenerator generator = new BeanDefinitionMethodGenerator(
+				this.methodGeneratorFactory, registeredBean, null,
+				List.of((generationContext, beanRegistrationCode) -> { }));
+		MethodReference method = generator.generateBeanDefinitionMethod(
+				this.generationContext, this.beanRegistrationsCode);
+		compile(method, (actual, compiled) -> {
+			SourceFile sourceFile = compiled.getSourceFile(".*BeanDefinitions");
+			assertThat(sourceFile).contains("Get the bean definition for 'testBean'");
+			assertThat(sourceFile).contains("beanType = TestBean.class");
+			assertThat(sourceFile).contains("setInstanceSupplier(TestBean::new)");
+			assertThat(actual).isInstanceOf(RootBeanDefinition.class);
+		});
+	}
+
 	@Test
 	void generateBeanDefinitionMethodWhenHasInnerClassTargetMethodGeneratesMethod() {
 		this.beanFactory.registerBeanDefinition("testBeanConfiguration", new RootBeanDefinition(
@@ -121,7 +138,7 @@ class BeanDefinitionMethodGeneratorTests {
 		compile(method, (actual, compiled) -> {
 			SourceFile sourceFile = compiled.getSourceFile(".*BeanDefinitions");
 			assertThat(sourceFile.getClassName()).endsWith("InnerBeanConfiguration__BeanDefinitions");
-			assertThat(sourceFile).contains("public static class Simple__BeanDefinitions")
+			assertThat(sourceFile).contains("public static class Simple")
 					.contains("Bean definitions for {@link InnerBeanConfiguration.Simple}")
 					.doesNotContain("Another__BeanDefinitions");
 
@@ -144,9 +161,9 @@ class BeanDefinitionMethodGeneratorTests {
 		compile(method, (actual, compiled) -> {
 			SourceFile sourceFile = compiled.getSourceFile(".*BeanDefinitions");
 			assertThat(sourceFile.getClassName()).endsWith("InnerBeanConfiguration__BeanDefinitions");
-			assertThat(sourceFile).contains("public static class Simple__BeanDefinitions")
+			assertThat(sourceFile).contains("public static class Simple")
 					.contains("Bean definitions for {@link InnerBeanConfiguration.Simple}")
-					.contains("public static class Another__BeanDefinitions")
+					.contains("public static class Another")
 					.contains("Bean definitions for {@link InnerBeanConfiguration.Simple.Another}");
 		});
 	}
@@ -389,7 +406,7 @@ class BeanDefinitionMethodGeneratorTests {
 		compile(method, (actual, compiled) -> {
 			ManagedList<RootBeanDefinition> actualPropertyValue = (ManagedList<RootBeanDefinition>) actual
 					.getPropertyValues().get("someList");
-			assertThat(actualPropertyValue).isNotNull().hasSize(2);
+			assertThat(actualPropertyValue).hasSize(2);
 			assertThat(actualPropertyValue.get(0).getPropertyValues().get("name")).isEqualTo("one");
 			assertThat(actualPropertyValue.get(1).getPropertyValues().get("name")).isEqualTo("two");
 			assertThat(compiled.getSourceFileFromPackage(TestBean.class.getPackageName()))
@@ -493,8 +510,8 @@ class BeanDefinitionMethodGeneratorTests {
 		testBeanDefinitionMethodInCurrentFile(Boolean.class, beanDefinition);
 	}
 
-	@Test
-	void throwExceptionWithInstanceSupplier() {
+	@Test // gh-29556
+	void throwExceptionWithInstanceSupplierWithoutAotContribution() {
 		RegisteredBean registeredBean = registerBean(new RootBeanDefinition(TestBean.class, TestBean::new));
 		assertThatIllegalArgumentException().isThrownBy(() -> new BeanDefinitionMethodGenerator(
 				this.methodGeneratorFactory, registeredBean, null,

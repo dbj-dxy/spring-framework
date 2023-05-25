@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -111,7 +111,7 @@ class AnnotationDrivenEventListenerTests {
 		this.eventCollector.assertTotalEventsCount(1);
 
 		context.getBean(ApplicationEventMulticaster.class).removeApplicationListeners(l ->
-				l instanceof SmartApplicationListener && ((SmartApplicationListener) l).getListenerId().contains("TestEvent"));
+				l instanceof SmartApplicationListener sal && sal.getListenerId().contains("TestEvent"));
 		this.eventCollector.clear();
 		this.context.publishEvent(event);
 		this.eventCollector.assertNoEventReceived(listener);
@@ -132,7 +132,7 @@ class AnnotationDrivenEventListenerTests {
 		this.eventCollector.assertTotalEventsCount(1);
 
 		context.getBean(ApplicationEventMulticaster.class).removeApplicationListeners(l ->
-				l instanceof SmartApplicationListener && ((SmartApplicationListener) l).getListenerId().contains("TestEvent"));
+				l instanceof SmartApplicationListener sal && sal.getListenerId().contains("TestEvent"));
 		this.eventCollector.clear();
 		this.context.publishEvent(event);
 		this.eventCollector.assertNoEventReceived(listener);
@@ -150,7 +150,7 @@ class AnnotationDrivenEventListenerTests {
 		this.eventCollector.assertTotalEventsCount(1);
 
 		context.getBean(ApplicationEventMulticaster.class).removeApplicationListeners(l ->
-				l instanceof SmartApplicationListener && ((SmartApplicationListener) l).getListenerId().equals("foo"));
+				l instanceof SmartApplicationListener sal && sal.getListenerId().equals("foo"));
 		this.eventCollector.clear();
 		this.context.publishEvent(event);
 		this.eventCollector.assertNoEventReceived(bean);
@@ -162,12 +162,12 @@ class AnnotationDrivenEventListenerTests {
 		ContextEventListener listener = this.context.getBean(ContextEventListener.class);
 
 		List<Object> events = this.eventCollector.getEvents(listener);
-		assertThat(events.size()).as("Wrong number of initial context events").isEqualTo(1);
+		assertThat(events).as("Wrong number of initial context events").hasSize(1);
 		assertThat(events.get(0).getClass()).isEqualTo(ContextRefreshedEvent.class);
 
 		this.context.stop();
 		List<Object> eventsAfterStop = this.eventCollector.getEvents(listener);
-		assertThat(eventsAfterStop.size()).as("Wrong number of context events on shutdown").isEqualTo(2);
+		assertThat(eventsAfterStop).as("Wrong number of context events on shutdown").hasSize(2);
 		assertThat(eventsAfterStop.get(1).getClass()).isEqualTo(ContextStoppedEvent.class);
 		this.eventCollector.assertTotalEventsCount(2);
 	}
@@ -334,7 +334,7 @@ class AnnotationDrivenEventListenerTests {
 		load(ScopedProxyTestBean.class);
 
 		SimpleService proxy = this.context.getBean(SimpleService.class);
-		assertThat(proxy instanceof Advised).as("bean should be a proxy").isTrue();
+		assertThat(proxy).as("bean should be a proxy").isInstanceOf(Advised.class);
 		this.eventCollector.assertNoEventReceived(proxy.getId());
 
 		this.context.publishEvent(new ContextRefreshedEvent(this.context));
@@ -351,7 +351,7 @@ class AnnotationDrivenEventListenerTests {
 		load(AnnotatedProxyTestBean.class);
 
 		AnnotatedSimpleService proxy = this.context.getBean(AnnotatedSimpleService.class);
-		assertThat(proxy instanceof Advised).as("bean should be a proxy").isTrue();
+		assertThat(proxy).as("bean should be a proxy").isInstanceOf(Advised.class);
 		this.eventCollector.assertNoEventReceived(proxy.getId());
 
 		this.context.publishEvent(new ContextRefreshedEvent(this.context));

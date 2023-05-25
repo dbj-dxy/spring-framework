@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,11 +25,15 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import kotlin.coroutines.Continuation;
+import kotlinx.coroutines.reactor.MonoKt;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
+import reactor.core.publisher.Mono;
 
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.aop.framework.ReflectiveMethodInvocation;
+import org.springframework.core.KotlinDetector;
 import org.springframework.core.MethodIntrospector;
 import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.core.annotation.AnnotatedElementUtils;
@@ -62,13 +66,14 @@ public final class HttpServiceProxyFactory {
 
 	private final ReactiveAdapterRegistry reactiveAdapterRegistry;
 
+	@Nullable
 	private final Duration blockTimeout;
 
 
 	private HttpServiceProxyFactory(
 			HttpClientAdapter clientAdapter, List<HttpServiceArgumentResolver> argumentResolvers,
 			@Nullable StringValueResolver embeddedValueResolver,
-			ReactiveAdapterRegistry reactiveAdapterRegistry, Duration blockTimeout) {
+			ReactiveAdapterRegistry reactiveAdapterRegistry, @Nullable Duration blockTimeout) {
 
 		this.clientAdapter = clientAdapter;
 		this.argumentResolvers = argumentResolvers;
@@ -202,13 +207,16 @@ public final class HttpServiceProxyFactory {
 		}
 
 		/**
-		 * Configure how long to wait for a response for an HTTP service method
+		 * Configure how long to block for the response of an HTTP service method
 		 * with a synchronous (blocking) method signature.
-		 * <p>By default this is 5 seconds.
+		 * <p>By default this is not set, in which case the behavior depends on
+		 * connection and request timeout settings of the underlying HTTP client.
+		 * We recommend configuring timeout values directly on the underlying HTTP
+		 * client, which provides more control over such settings.
 		 * @param blockTimeout the timeout value
 		 * @return this same builder instance
 		 */
-		public Builder blockTimeout(Duration blockTimeout) {
+		public Builder blockTimeout(@Nullable Duration blockTimeout) {
 			this.blockTimeout = blockTimeout;
 			return this;
 		}
@@ -221,8 +229,7 @@ public final class HttpServiceProxyFactory {
 
 			return new HttpServiceProxyFactory(
 					this.clientAdapter, initArgumentResolvers(),
-					this.embeddedValueResolver, this.reactiveAdapterRegistry,
-					(this.blockTimeout != null ? this.blockTimeout : Duration.ofSeconds(5)));
+					this.embeddedValueResolver, this.reactiveAdapterRegistry, this.blockTimeout);
 		}
 
 		private List<HttpServiceArgumentResolver> initArgumentResolvers() {
@@ -268,6 +275,9 @@ public final class HttpServiceProxyFactory {
 			Method method = invocation.getMethod();
 			HttpServiceMethod httpServiceMethod = this.httpServiceMethods.get(method);
 			if (httpServiceMethod != null) {
+				if (KotlinDetector.isSuspendingFunction(method)) {
+					return KotlinDelegate.invokeSuspendingFunction(invocation, httpServiceMethod);
+				}
 				return httpServiceMethod.invoke(invocation.getArguments());
 			}
 			if (method.isDefault()) {
@@ -277,6 +287,27 @@ public final class HttpServiceProxyFactory {
 				}
 			}
 			throw new IllegalStateException("Unexpected method invocation: " + method);
+		}
+	}
+
+	/**
+	 * Inner class to avoid a hard dependency on Kotlin at runtime.
+	 */
+	@SuppressWarnings("unchecked")
+	private static class KotlinDelegate {
+
+		public static Object invokeSuspendingFunction(MethodInvocation invocation, HttpServiceMethod httpServiceMethod) {
+			Object[] rawArguments = invocation.getArguments();
+			Object[] arguments = resolveArguments(rawArguments);
+			Continuation<Object> continuation = (Continuation<Object>) rawArguments[rawArguments.length - 1];
+			Mono<Object> wrapped = (Mono<Object>) httpServiceMethod.invoke(arguments);
+			return MonoKt.awaitSingleOrNull(wrapped, continuation);
+		}
+
+		private static Object[] resolveArguments(Object[] args) {
+			Object[] functionArgs = new Object[args.length - 1];
+			System.arraycopy(args, 0, functionArgs, 0, args.length - 1);
+			return functionArgs;
 		}
 	}
 

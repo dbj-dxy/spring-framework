@@ -280,12 +280,14 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 	}
 
 	@Override
+	@Nullable
 	public BeanRegistrationAotContribution processAheadOfTime(RegisteredBean registeredBean) {
 		Class<?> beanClass = registeredBean.getBeanClass();
 		String beanName = registeredBean.getBeanName();
 		RootBeanDefinition beanDefinition = registeredBean.getMergedBeanDefinition();
 		InjectionMetadata metadata = findInjectionMetadata(beanName, beanClass, beanDefinition);
-		Collection<AutowiredElement> autowiredElements = getAutowiredElements(metadata);
+		Collection<AutowiredElement> autowiredElements = getAutowiredElements(metadata,
+				registeredBean.getMergedBeanDefinition().getPropertyValues());
 		if (!ObjectUtils.isEmpty(autowiredElements)) {
 			return new AotContribution(beanClass, autowiredElements, getAutowireCandidateResolver());
 		}
@@ -294,8 +296,8 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 
 
 	@SuppressWarnings({ "rawtypes", "unchecked" })
-	private Collection<AutowiredElement> getAutowiredElements(InjectionMetadata metadata) {
-		return (Collection) metadata.getInjectedElements();
+	private Collection<AutowiredElement> getAutowiredElements(InjectionMetadata metadata, PropertyValues propertyValues) {
+		return (Collection) metadata.getInjectedElements(propertyValues);
 	}
 
 	@Nullable
@@ -323,10 +325,10 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 		checkLookupMethods(beanClass, beanName);
 
 		// Pick up subclass with fresh lookup method override from above
-		if (this.beanFactory instanceof AbstractAutowireCapableBeanFactory aacbf) {
+		if (this.beanFactory instanceof AbstractAutowireCapableBeanFactory aacBeanFactory) {
 			RootBeanDefinition mbd = (RootBeanDefinition) this.beanFactory.getMergedBeanDefinition(beanName);
 			if (mbd.getFactoryMethodName() == null && mbd.hasBeanClass()) {
-				return aacbf.getInstantiationStrategy().getActualBeanClass(mbd, beanName, this.beanFactory);
+				return aacBeanFactory.getInstantiationStrategy().getActualBeanClass(mbd, beanName, aacBeanFactory);
 			}
 		}
 		return beanClass;
@@ -751,7 +753,7 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 
 		@Override
 		protected void inject(Object bean, @Nullable String beanName, @Nullable PropertyValues pvs) throws Throwable {
-			if (checkPropertySkipping(pvs)) {
+			if (!shouldInject(pvs)) {
 				return;
 			}
 			Method method = (Method) this.member;

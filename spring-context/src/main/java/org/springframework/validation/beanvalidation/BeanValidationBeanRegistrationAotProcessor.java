@@ -21,6 +21,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import jakarta.validation.ConstraintValidator;
+import jakarta.validation.NoProviderFoundException;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.metadata.BeanDescriptor;
@@ -30,6 +31,8 @@ import jakarta.validation.metadata.MethodDescriptor;
 import jakarta.validation.metadata.MethodType;
 import jakarta.validation.metadata.ParameterDescriptor;
 import jakarta.validation.metadata.PropertyDescriptor;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import org.springframework.aot.generate.GenerationContext;
 import org.springframework.aot.hint.MemberCategory;
@@ -37,6 +40,7 @@ import org.springframework.beans.factory.aot.BeanRegistrationAotContribution;
 import org.springframework.beans.factory.aot.BeanRegistrationAotProcessor;
 import org.springframework.beans.factory.aot.BeanRegistrationCode;
 import org.springframework.beans.factory.support.RegisteredBean;
+import org.springframework.core.KotlinDetector;
 import org.springframework.lang.Nullable;
 import org.springframework.util.ClassUtils;
 
@@ -45,6 +49,7 @@ import org.springframework.util.ClassUtils;
  * required for {@link ConstraintValidator}s.
  *
  * @author Sebastien Deleuze
+ * @author Juergen Hoeller
  * @since 6.0.5
  */
 class BeanValidationBeanRegistrationAotProcessor implements BeanRegistrationAotProcessor {
@@ -52,8 +57,11 @@ class BeanValidationBeanRegistrationAotProcessor implements BeanRegistrationAotP
 	private static final boolean isBeanValidationPresent = ClassUtils.isPresent(
 			"jakarta.validation.Validation", BeanValidationBeanRegistrationAotProcessor.class.getClassLoader());
 
-	@Nullable
+	private static final Log logger = LogFactory.getLog(BeanValidationBeanRegistrationAotProcessor.class);
+
+
 	@Override
+	@Nullable
 	public BeanRegistrationAotContribution processAheadOfTime(RegisteredBean registeredBean) {
 		if (isBeanValidationPresent) {
 			return BeanValidationDelegate.processAheadOfTime(registeredBean);
@@ -61,13 +69,46 @@ class BeanValidationBeanRegistrationAotProcessor implements BeanRegistrationAotP
 		return null;
 	}
 
+
 	private static class BeanValidationDelegate {
 
-		private static Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+		@Nullable
+		private static final Validator validator = getValidatorIfAvailable();
+
+		@Nullable
+		private static Validator getValidatorIfAvailable() {
+			try {
+				return Validation.buildDefaultValidatorFactory().getValidator();
+			}
+			catch (NoProviderFoundException ex) {
+				logger.info("No Bean Validation provider available - skipping validation constraint hint inference");
+				return null;
+			}
+		}
 
 		@Nullable
 		public static BeanRegistrationAotContribution processAheadOfTime(RegisteredBean registeredBean) {
-			BeanDescriptor descriptor = validator.getConstraintsForClass(registeredBean.getBeanClass());
+			if (validator == null) {
+				return null;
+			}
+
+			BeanDescriptor descriptor;
+			try {
+				descriptor = validator.getConstraintsForClass(registeredBean.getBeanClass());
+			}
+			catch (RuntimeException ex) {
+				if (KotlinDetector.isKotlinType(registeredBean.getBeanClass()) && ex instanceof ArrayIndexOutOfBoundsException) {
+					// See https://hibernate.atlassian.net/browse/HV-1796 and https://youtrack.jetbrains.com/issue/KT-40857
+					logger.warn("Skipping validation constraint hint inference for bean " + registeredBean.getBeanName() +
+							" due to an ArrayIndexOutOfBoundsException at validator level");
+				}
+				else {
+					logger.error("Skipping validation constraint hint inference for bean " +
+							registeredBean.getBeanName(), ex);
+				}
+				return null;
+			}
+
 			Set<ConstraintDescriptor<?>> constraintDescriptors = new HashSet<>();
 			for (MethodDescriptor methodDescriptor : descriptor.getConstrainedMethods(MethodType.NON_GETTER, MethodType.GETTER)) {
 				for (ParameterDescriptor parameterDescriptor : methodDescriptor.getParameterDescriptors()) {
@@ -87,8 +128,8 @@ class BeanValidationBeanRegistrationAotProcessor implements BeanRegistrationAotP
 			}
 			return null;
 		}
-
 	}
+
 
 	private static class BeanValidationBeanRegistrationAotContribution implements BeanRegistrationAotContribution {
 

@@ -294,7 +294,9 @@ class ConstructorResolver {
 				}
 				throw new BeanCreationException(mbd.getResourceDescription(), beanName,
 						"Could not resolve matching constructor on bean class [" + mbd.getBeanClassName() + "] " +
-						"(hint: specify index/type/name arguments for simple parameters to avoid type ambiguities)");
+						"(hint: specify index/type/name arguments for simple parameters to avoid type ambiguities. " +
+						"You should also check the consistency of arguments when mixing indexed and named arguments, " +
+						"especially in case of bean definition inheritance)");
 			}
 			else if (ambiguousConstructors != null && !mbd.isLenientConstructorResolution()) {
 				throw new BeanCreationException(mbd.getResourceDescription(), beanName,
@@ -786,8 +788,8 @@ class ConstructorResolver {
 							"] - did you specify the correct bean references as arguments?");
 				}
 				try {
-					Object autowiredArgument = resolveAutowiredArgument(
-							methodParam, beanName, autowiredBeanNames, converter, fallback);
+					Object autowiredArgument = resolveAutowiredArgument(new DependencyDescriptor(methodParam, true),
+							beanName, autowiredBeanNames, converter, fallback);
 					args.rawArguments[paramIndex] = autowiredArgument;
 					args.arguments[paramIndex] = autowiredArgument;
 					args.preparedArguments[paramIndex] = autowiredArgumentMarker;
@@ -829,7 +831,8 @@ class ConstructorResolver {
 			Object argValue = argsToResolve[argIndex];
 			MethodParameter methodParam = MethodParameter.forExecutable(executable, argIndex);
 			if (argValue == autowiredArgumentMarker) {
-				argValue = resolveAutowiredArgument(methodParam, beanName, null, converter, true);
+				argValue = resolveAutowiredArgument(new DependencyDescriptor(methodParam, true),
+						beanName, null, converter, true);
 			}
 			else if (argValue instanceof BeanMetadataElement) {
 				argValue = valueResolver.resolveValueIfNecessary("constructor argument", argValue);
@@ -870,20 +873,20 @@ class ConstructorResolver {
 	 * Template method for resolving the specified argument which is supposed to be autowired.
 	 */
 	@Nullable
-	protected Object resolveAutowiredArgument(MethodParameter param, String beanName,
+	protected Object resolveAutowiredArgument(DependencyDescriptor descriptor, String beanName,
 			@Nullable Set<String> autowiredBeanNames, TypeConverter typeConverter, boolean fallback) {
 
-		Class<?> paramType = param.getParameterType();
+		Class<?> paramType = descriptor.getMethodParameter().getParameterType();
 		if (InjectionPoint.class.isAssignableFrom(paramType)) {
 			InjectionPoint injectionPoint = currentInjectionPoint.get();
 			if (injectionPoint == null) {
-				throw new IllegalStateException("No current InjectionPoint available for " + param);
+				throw new IllegalStateException("No current InjectionPoint available for " + descriptor);
 			}
 			return injectionPoint;
 		}
 		try {
 			return this.beanFactory.resolveDependency(
-					new DependencyDescriptor(param, true), beanName, autowiredBeanNames, typeConverter);
+					descriptor, beanName, autowiredBeanNames, typeConverter);
 		}
 		catch (NoUniqueBeanDefinitionException ex) {
 			throw ex;
@@ -1220,6 +1223,54 @@ class ConstructorResolver {
 			currentInjectionPoint.remove();
 		}
 		return old;
+	}
+
+	/**
+	 * See {@link BeanUtils#getResolvableConstructor(Class)} for alignment.
+	 * This variant adds a lenient fallback to the default constructor if available, similar to
+	 * {@link org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor#determineCandidateConstructors}.
+	 */
+	@Nullable
+	static Constructor<?>[] determinePreferredConstructors(Class<?> clazz) {
+		Constructor<?> primaryCtor = BeanUtils.findPrimaryConstructor(clazz);
+
+		Constructor<?> defaultCtor;
+		try {
+			defaultCtor = clazz.getDeclaredConstructor();
+		}
+		catch (NoSuchMethodException ex) {
+			defaultCtor = null;
+		}
+
+		if (primaryCtor != null) {
+			if (defaultCtor != null && !primaryCtor.equals(defaultCtor)) {
+				return new Constructor<?>[] {primaryCtor, defaultCtor};
+			}
+			else {
+				return new Constructor<?>[] {primaryCtor};
+			}
+		}
+
+		Constructor<?>[] ctors = clazz.getConstructors();
+		if (ctors.length == 1) {
+			// A single public constructor, potentially in combination with a non-public default constructor
+			if (defaultCtor != null && !ctors[0].equals(defaultCtor)) {
+				return new Constructor<?>[] {ctors[0], defaultCtor};
+			}
+			else {
+				return ctors;
+			}
+		}
+		else if (ctors.length == 0) {
+			// No public constructors -> check non-public
+			ctors = clazz.getDeclaredConstructors();
+			if (ctors.length == 1) {
+				// A single non-public constructor, e.g. from a non-public record type
+				return ctors;
+			}
+		}
+
+		return null;
 	}
 
 

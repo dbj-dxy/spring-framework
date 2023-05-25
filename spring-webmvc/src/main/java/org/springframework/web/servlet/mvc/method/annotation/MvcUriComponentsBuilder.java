@@ -180,6 +180,7 @@ public class MvcUriComponentsBuilder {
 		builder.path(prefix);
 
 		String mapping = getClassMapping(controllerType);
+		mapping = (!StringUtils.hasText(prefix + mapping) ? "/" : mapping);
 		builder.path(mapping);
 
 		return builder;
@@ -280,10 +281,10 @@ public class MvcUriComponentsBuilder {
 	 * &#064;RequestMapping("/people/{id}/addresses")
 	 * class AddressController {
 	 *
-	 *   &#064;RequestMapping("/{country}")
+	 *   &#064;GetMapping("/{country}")
 	 *   public HttpEntity&lt;Void&gt; getAddressesForCountry(&#064;PathVariable String country) { ... }
 	 *
-	 *   &#064;RequestMapping(value="/", method=RequestMethod.POST)
+	 *   &#064;PostMapping
 	 *   public void addAddress(Address address) { ... }
 	 * }
 	 * </pre>
@@ -546,6 +547,9 @@ public class MvcUriComponentsBuilder {
 		if (StringUtils.hasLength(path) && !path.startsWith("/")) {
 			path = "/" + path;
 		}
+		else if (!StringUtils.hasText(prefix + path)) {
+			path = "/";
+		}
 		builder.path(path);
 
 		return applyContributors(builder, method, args);
@@ -577,11 +581,11 @@ public class MvcUriComponentsBuilder {
 		Assert.notNull(controllerType, "'controllerType' must not be null");
 		RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(controllerType, RequestMapping.class);
 		if (mapping == null) {
-			return "/";
+			return "";
 		}
 		String[] paths = mapping.path();
 		if (ObjectUtils.isEmpty(paths) || !StringUtils.hasLength(paths[0])) {
-			return "/";
+			return "";
 		}
 		if (paths.length > 1 && logger.isTraceEnabled()) {
 			logger.trace("Using first of multiple paths on " + controllerType.getName());
@@ -597,7 +601,7 @@ public class MvcUriComponentsBuilder {
 		}
 		String[] paths = requestMapping.path();
 		if (ObjectUtils.isEmpty(paths) || !StringUtils.hasLength(paths[0])) {
-			return "/";
+			return "";
 		}
 		if (paths.length > 1 && logger.isTraceEnabled()) {
 			logger.trace("Using first of multiple paths on " + method.toGenericString());
@@ -775,9 +779,14 @@ public class MvcUriComponentsBuilder {
 			}
 
 			else if (controllerType.isInterface()) {
-				return (T) Proxy.newProxyInstance(controllerType.getClassLoader(),
-						new Class<?>[] {controllerType, MethodInvocationInfo.class},
-						interceptor);
+				ClassLoader classLoader = controllerType.getClassLoader();
+				if (classLoader == null || classLoader.getParent() == null) {
+					// JDK interface type from bootstrap loader or platform loader ->
+					// use higher-level loader which can see Spring infrastructure classes
+					classLoader = MethodInvocationInfo.class.getClassLoader();
+				}
+				Class<?>[] ifcs = new Class<?>[] {controllerType, MethodInvocationInfo.class};
+				return (T) Proxy.newProxyInstance(classLoader, ifcs, interceptor);
 			}
 
 			else {
@@ -845,7 +854,7 @@ public class MvcUriComponentsBuilder {
 		public MethodArgumentBuilder(@Nullable UriComponentsBuilder baseUrl, Class<?> controllerType, Method method) {
 			Assert.notNull(controllerType, "'controllerType' is required");
 			Assert.notNull(method, "'method' is required");
-			this.baseUrl = baseUrl != null ? baseUrl : UriComponentsBuilder.fromPath(getPath());
+			this.baseUrl = (baseUrl != null ? baseUrl : UriComponentsBuilder.fromPath(getPath()));
 			this.controllerType = controllerType;
 			this.method = method;
 			this.argumentValues = new Object[method.getParameterCount()];
@@ -854,7 +863,7 @@ public class MvcUriComponentsBuilder {
 		private static String getPath() {
 			UriComponentsBuilder builder = ServletUriComponentsBuilder.fromCurrentServletMapping();
 			String path = builder.build().getPath();
-			return path != null ? path : "";
+			return (path != null ? path : "");
 		}
 
 		public MethodArgumentBuilder arg(int index, Object value) {

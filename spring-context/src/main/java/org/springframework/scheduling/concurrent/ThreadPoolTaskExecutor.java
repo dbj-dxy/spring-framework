@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -364,12 +364,6 @@ public class ThreadPoolTaskExecutor extends ExecutorConfigurationSupport
 		}
 	}
 
-	@Deprecated
-	@Override
-	public void execute(Runnable task, long startTimeout) {
-		execute(task);
-	}
-
 	@Override
 	public Future<?> submit(Runnable task) {
 		ExecutorService executor = getThreadPoolExecutor();
@@ -423,8 +417,8 @@ public class ThreadPoolTaskExecutor extends ExecutorConfigurationSupport
 		super.cancelRemainingTask(task);
 		// Cancel associated user-level Future handle as well
 		Object original = this.decoratedTaskMap.get(task);
-		if (original instanceof Future) {
-			((Future<?>) original).cancel(true);
+		if (original instanceof Future<?> future) {
+			future.cancel(true);
 		}
 	}
 
